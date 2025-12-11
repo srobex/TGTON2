@@ -10,7 +10,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.context import bot, gem_scanner, referral_service, settings
-from bot.keyboards.reply import build_main_menu_keyboard
+from bot.keyboards.reply import build_main_menu_keyboard, get_command_by_button_text
 from bot.models import User
 from bot.repositories import get_or_create_user
 from bot.utils.i18n import get_i18n
@@ -40,12 +40,16 @@ async def handle_start(
 @router.message(Command("menu"))
 async def handle_menu(message: Message) -> None:
     locale = i18n.detect_locale(getattr(message.from_user, "language_code", None))
-    text = i18n.gettext(
-        "menu_hint",
-        locale=locale,
-        bot=settings.telegram.app_name,
-    )
-    await message.answer(text, reply_markup=build_main_menu_keyboard())
+    text = i18n.gettext("menu_hint", locale=locale)
+    await message.answer(text, reply_markup=build_main_menu_keyboard(locale))
+
+
+@router.message(Command("help"))
+async def handle_help(message: Message) -> None:
+    """Справка по боту."""
+    locale = i18n.detect_locale(getattr(message.from_user, "language_code", None))
+    text = i18n.gettext("help_message", locale=locale)
+    await message.answer(text, reply_markup=build_main_menu_keyboard(locale))
 
 
 @router.message(Command("hot"))
@@ -90,10 +94,51 @@ async def handle_language_switch(callback: CallbackQuery) -> None:
         if "message is not modified" not in str(exc):
             raise
     await callback.message.answer(
-        i18n.gettext("menu_hint", locale=locale, bot=settings.telegram.app_name),
-        reply_markup=build_main_menu_keyboard(),
+        i18n.gettext("menu_hint", locale=locale),
+        reply_markup=build_main_menu_keyboard(locale),
     )
     await callback.answer()
+
+
+# =============================================================================
+# Обработка текстовых кнопок клавиатуры
+# =============================================================================
+
+@router.message(F.text)
+async def handle_text_buttons(message: Message) -> None:
+    """Обрабатывает нажатия на кнопки клавиатуры (текстовые)."""
+    
+    text = message.text.strip()
+    command = get_command_by_button_text(text)
+    
+    if command is None:
+        # Это не кнопка меню, пропускаем
+        return
+    
+    locale = i18n.detect_locale(getattr(message.from_user, "language_code", None))
+    
+    # Перенаправляем на соответствующий обработчик
+    if command == "/gem":
+        from bot.handlers.ton.gem_hunter import command_gemhunter
+        await command_gemhunter(message)
+    elif command == "/hot":
+        await handle_hot_tokens(message)
+    elif command == "/wallet":
+        from bot.handlers.core.wallet import handle_wallet
+        await handle_wallet(message)
+    elif command == "/connect":
+        from bot.handlers.core.wallet import handle_connect
+        await handle_connect(message)
+    elif command == "/positions":
+        from bot.handlers.ton.positions import handle_positions
+        await handle_positions(message)
+    elif command == "/referral":
+        from bot.handlers.core.referral import handle_referral
+        await handle_referral(message)
+    elif command == "/menu":
+        await handle_menu(message)
+    elif command == "/help":
+        await handle_help(message)
 
 
 def _build_lang_keyboard(active_locale: str) -> InlineKeyboardMarkup:

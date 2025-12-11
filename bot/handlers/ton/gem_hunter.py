@@ -22,7 +22,7 @@ DEFAULT_BUY_AMOUNT_TON = 1.0
 async def command_gemhunter(message: Message) -> None:
     locale = i18n.detect_locale(getattr(message.from_user, "language_code", None))
     text = await _render_top(locale)
-    await message.answer(text, reply_markup=build_gem_list_keyboard())
+    await message.answer(text, reply_markup=build_gem_list_keyboard(), parse_mode="HTML")
 
 
 @router.callback_query(F.data == "gem:refresh")
@@ -231,7 +231,11 @@ async def _render_top(locale: str) -> str:
     tokens = await gem_scanner.get_top()
     if not tokens:
         return i18n.gettext("hot_empty", locale=locale)
-    lines = []
+    
+    # Заголовок
+    header = i18n.gettext("gem_header", locale=locale)
+    lines = [header, ""]
+    
     for idx, token in enumerate(tokens, start=1):
         tags = ", ".join(token.tags) if token.tags else i18n.gettext("tag_unknown", locale=locale)
         lines.append(
