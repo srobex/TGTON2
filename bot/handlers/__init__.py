@@ -12,9 +12,9 @@ def register_routers(dispatcher: Dispatcher) -> None:
     from .ton import gem_hunter, positions, token_check, trading
 
     routers = (
+        wallet.router,  # FSM handlers должны быть первыми
         common.router,
         referral.router,
-        wallet.router,
         gem_hunter.router,
         positions.router,
         token_check.router,

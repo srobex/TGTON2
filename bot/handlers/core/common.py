@@ -117,6 +117,12 @@ async def handle_text_buttons(
 ) -> None:
     """Обрабатывает нажатия на кнопки клавиатуры (текстовые)."""
     
+    # Если есть активное FSM состояние — пропускаем, пусть другие handlers обработают
+    if state:
+        current_state = await state.get_state()
+        if current_state is not None:
+            return
+    
     text = message.text.strip()
     command = get_command_by_button_text(text)
     
