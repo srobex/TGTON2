@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.filters.command import CommandObject
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from aiogram.fsm.context import FSMContext
 
 from bot.context import bot, gem_scanner, referral_service, settings
 from bot.keyboards.reply import build_main_menu_keyboard, get_command_by_button_text
@@ -105,7 +110,11 @@ async def handle_language_switch(callback: CallbackQuery) -> None:
 # =============================================================================
 
 @router.message(F.text)
-async def handle_text_buttons(message: Message, session: AsyncSession | None = None) -> None:
+async def handle_text_buttons(
+    message: Message, 
+    session: AsyncSession | None = None,
+    state: "FSMContext | None" = None,
+) -> None:
     """Обрабатывает нажатия на кнопки клавиатуры (текстовые)."""
     
     text = message.text.strip()
@@ -128,7 +137,7 @@ async def handle_text_buttons(message: Message, session: AsyncSession | None = N
         await wallet.command_wallet(message, session)
     elif command == "/connect":
         from bot.handlers.core import wallet
-        await wallet.command_connect(message)
+        await wallet.command_connect(message, state)
     elif command == "/positions":
         from bot.handlers.ton.positions import command_positions
         await command_positions(message, session)
