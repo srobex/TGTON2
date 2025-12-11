@@ -124,11 +124,11 @@ async def handle_text_buttons(message: Message, session: AsyncSession | None = N
     elif command == "/hot":
         await handle_hot_tokens(message)
     elif command == "/wallet":
-        from bot.handlers.core.wallet import command_wallet
-        await command_wallet(message, session)
+        from bot.handlers.core import wallet
+        await wallet.command_wallet(message, session)
     elif command == "/connect":
-        from bot.handlers.core.wallet import command_connect
-        await command_connect(message)
+        from bot.handlers.core import wallet
+        await wallet.command_connect(message)
     elif command == "/positions":
         from bot.handlers.ton.positions import command_positions
         await command_positions(message, session)
