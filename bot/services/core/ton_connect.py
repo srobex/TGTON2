@@ -58,14 +58,21 @@ class TonConnectService:
         self._wallet_index: dict[str, int] = {}
         self._session_maker: async_sessionmaker[AsyncSession] | None = None
 
-    def create_connection_url(self, user_id: int) -> str:
-        """Формирует URL для Ton Connect Mini App."""
-
-        session_token = secrets.token_urlsafe(16)
-        payload = {"user_id": user_id, "session": session_token}
-        url = self._connector.create_link(json.dumps(payload))
-        logger.debug("TonConnect URL для пользователя {user}: {url}", user=user_id, url=url)
-        return url
+    async def create_connection_url(self, user_id: int) -> str:
+        """Формирует URL для Ton Connect через pytonconnect."""
+        try:
+            # pytonconnect требует async connect
+            wallets = await self._connector.get_wallets()
+            if wallets:
+                # Генерируем URL для первого доступного кошелька (обычно Tonkeeper)
+                connect_url = await self._connector.connect(wallets[0])
+                logger.debug("TonConnect URL для пользователя {user}: {url}", user=user_id, url=connect_url)
+                return connect_url
+        except Exception as e:
+            logger.warning("TonConnect connect failed: {e}, using fallback", e=str(e))
+        
+        # Fallback: возвращаем ссылку на @wallet бот в Telegram
+        return f"https://t.me/wallet?startattach=ton-connect"
 
     def set_session_maker(self, session_maker: async_sessionmaker[AsyncSession]) -> None:
         self._session_maker = session_maker

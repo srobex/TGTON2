@@ -21,7 +21,7 @@ i18n = get_i18n()
 @router.message(Command("connect"))
 async def command_connect(message: Message) -> None:
     locale = i18n.detect_locale(getattr(message.from_user, "language_code", None))
-    link = ton_connect.create_connection_url(message.from_user.id)
+    link = await ton_connect.create_connection_url(message.from_user.id)
     await message.answer(i18n.gettext("connect_link", locale=locale, link=link))
     token = issue_session_token(message.from_user.id)
     await message.answer(i18n.gettext("connect_token", locale=locale, token=token))
