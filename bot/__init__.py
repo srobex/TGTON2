@@ -1,0 +1,5 @@
+"""HyperSniper bot package."""
+
+
+
+
