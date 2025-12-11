@@ -99,9 +99,9 @@ class GemScannerSettings(BaseModel):
 
     refresh_interval_sec: int = 15
     burst_threshold_tokens: int = 10
-    min_liquidity_usd: PositiveFloat = 5_000.0
-    min_volume_5m_usd: PositiveFloat = 20_000.0
-    hot_growth_percent: PositiveFloat = 35.0
+    min_liquidity_usd: float = 5_000.0  # 0 = агрессивный режим
+    min_volume_5m_usd: float = 20_000.0  # 0 = без фильтра
+    hot_growth_percent: float = 35.0  # 0 = без фильтра
 
 
 class PriceFeedSettings(BaseModel):
