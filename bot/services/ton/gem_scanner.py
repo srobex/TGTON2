@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Sequence
+from typing import Any, Awaitable, Callable, Sequence, TYPE_CHECKING
 
 import aiohttp
 from loguru import logger
@@ -20,6 +20,9 @@ from bot.utils.cache import get_cache
 from config.settings import get_settings
 from .safety_checker import SafetyChecker, SafetyReport
 from .ton_direct import JettonMinterEvent, get_ton_client
+
+if TYPE_CHECKING:
+    from aiogram import Bot
 
 
 @dataclass(slots=True)
@@ -52,6 +55,7 @@ class GemScanner:
 
     def __init__(self, safety_checker: SafetyChecker) -> None:
         self._settings = get_settings().gem_scanner
+        self._app_settings = get_settings()
         self._safety_checker = safety_checker
         self._ton_client = None
         self._hot_tokens: list[GemSignal] = []
@@ -60,12 +64,17 @@ class GemScanner:
         self._refresh_task: asyncio.Task[None] | None = None
         self._session_maker: async_sessionmaker[AsyncSession] | None = None
         self._cache = get_cache()
+        self._bot: "Bot | None" = None
         self._filters: dict[str, Any] = {
             "min_score": 0.0,
             "lp_burned_only": False,
             "smart_money_min": 0,
             "sort_key": "score",
         }
+    
+    def set_bot(self, bot: "Bot") -> None:
+        """Устанавливает бота для отправки уведомлений админам."""
+        self._bot = bot
 
     async def start(self) -> None:
         """Поднимает TonDirect и подписку на JettonMinter."""
@@ -97,31 +106,40 @@ class GemScanner:
             return self._apply_filters(self._hot_tokens)[:limit]
 
     async def _on_new_jetton(self, event: JettonMinterEvent) -> None:
-        """Колбэк от TonDirect: прогоняем токен через фильтры."""
+        """Колбэк от TonDirect/Indexer: прогоняем токен через фильтры."""
 
         report = await self._safety_checker.check_jetton(event.address, event.raw)
-        if not report.is_safe:
-            logger.debug("Jetton {addr} отклонён safety фильтром", addr=event.address)
-            return
-        if report.liquidity_usd < self._settings.min_liquidity_usd:
-            logger.debug(
-                "Jetton {addr} отклонён: ликвидность {liq} < {min_liq}",
-                addr=event.address,
-                liq=report.liquidity_usd,
-                min_liq=self._settings.min_liquidity_usd,
-            )
-            return
-        if report.volume_5m_usd < self._settings.min_volume_5m_usd:
-            logger.debug(
-                "Jetton {addr} отклонён: объём {vol} < {min_vol}",
-                addr=event.address,
-                vol=report.volume_5m_usd,
-                min_vol=self._settings.min_volume_5m_usd,
-            )
-            return
+        
+        # Агрессивный режим: если min_liquidity=0, пропускаем все токены
+        aggressive_mode = self._settings.min_liquidity_usd == 0
+        
+        if not aggressive_mode:
+            if not report.is_safe:
+                logger.debug("Jetton {addr} отклонён safety фильтром", addr=event.address)
+                return
+            if report.liquidity_usd < self._settings.min_liquidity_usd:
+                logger.debug(
+                    "Jetton {addr} отклонён: ликвидность {liq} < {min_liq}",
+                    addr=event.address,
+                    liq=report.liquidity_usd,
+                    min_liq=self._settings.min_liquidity_usd,
+                )
+                return
+            if report.volume_5m_usd < self._settings.min_volume_5m_usd:
+                logger.debug(
+                    "Jetton {addr} отклонён: объём {vol} < {min_vol}",
+                    addr=event.address,
+                    vol=report.volume_5m_usd,
+                    min_vol=self._settings.min_volume_5m_usd,
+                )
+                return
+        
         score = self._calc_score(report)
         async with self._lock:
             tags = self._build_tags(report)
+            # В агрессивном режиме добавляем метку
+            if aggressive_mode:
+                tags = ("⚠️ Агрессивный",) + tags
             signal = GemSignal(
                 address=event.address,
                 symbol=event.symbol,
@@ -132,15 +150,19 @@ class GemScanner:
             self._hot_tokens.append(signal)
             self._hot_tokens.sort(key=lambda x: x.score, reverse=True)
             self._hot_tokens = self._hot_tokens[: self._settings.burst_threshold_tokens]
+        
         logger.info(
-            "Новый сигнал GemHunter: {symbol} ({addr}) рейтинг {score:.1f}, ликвидность {liq}, объём {vol}",
+            "🚀 НОВЫЙ ТОКЕН: {symbol} ({addr}) | score={score:.1f} | liq=${liq} | vol=${vol}",
             symbol=event.symbol or event.address[-6:],
-            addr=event.address,
+            addr=event.address[:20] + "...",
             score=score,
             liq=report.liquidity_usd,
             vol=report.volume_5m_usd,
         )
         await self._persist_signal(signal)
+        
+        # Уведомляем админов о новом токене
+        await self._notify_admins_new_token(event, signal, report)
 
     async def _periodic_push(self) -> None:
         """Раз в refresh_interval_sec отправляет топ подписчикам."""
@@ -272,6 +294,52 @@ class GemScanner:
                     logger.debug("Webhook {url} ответил статусом {status}", url=url, status=resp.status)
         except Exception as exc:  # noqa: BLE001
             logger.debug("Webhook {url} не доступен: {error}", url=url, error=exc)
+
+    async def _notify_admins_new_token(
+        self,
+        event: JettonMinterEvent,
+        signal: GemSignal,
+        report: SafetyReport,
+    ) -> None:
+        """Отправляет уведомление админам о новом токене."""
+        if self._bot is None:
+            return
+        
+        admins = self._app_settings.telegram.admins
+        if not admins:
+            return
+        
+        # Формируем сообщение
+        tags_str = ", ".join(signal.tags) if signal.tags else "нет меток"
+        source = event.raw.get("source", "toncenter")
+        latency = event.raw.get("latency_ms", "?")
+        
+        text = (
+            f"🚀 <b>НОВЫЙ ТОКЕН!</b>\n\n"
+            f"📍 <b>Адрес:</b> <code>{event.address}</code>\n"
+            f"🏷 <b>Символ:</b> {event.symbol or '???'}\n"
+            f"📊 <b>Рейтинг:</b> {signal.score:.1f}\n"
+            f"💰 <b>Ликвидность:</b> ${report.liquidity_usd:,.0f}\n"
+            f"📈 <b>Объём 5м:</b> ${report.volume_5m_usd:,.0f}\n"
+            f"🔥 <b>LP сожжён:</b> {'✅' if report.lp_burned else '❌'}\n"
+            f"🐳 <b>Smart money:</b> {report.smart_money_hits}\n"
+            f"🏷 <b>Метки:</b> {tags_str}\n\n"
+            f"⚡ <b>Источник:</b> {source}\n"
+            f"⏱ <b>Latency:</b> {latency}ms\n\n"
+            f"🔗 <a href='https://tonviewer.com/{event.address}'>Tonviewer</a> | "
+            f"<a href='https://dexscreener.com/ton/{event.address}'>DexScreener</a>"
+        )
+        
+        for admin_id in admins:
+            try:
+                await self._bot.send_message(
+                    chat_id=admin_id,
+                    text=text,
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                )
+            except Exception as exc:
+                logger.warning("Не удалось отправить уведомление админу {admin}: {error}", admin=admin_id, error=exc)
 
 
 __all__ = ["GemScanner", "GemSignal"]

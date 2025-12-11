@@ -47,6 +47,8 @@ async def on_startup(dispatcher: Dispatcher) -> None:
     price_feed_service.subscribe(_price_feed_dispatch)
     logger.debug("on_startup: start price feed")
     await price_feed_service.start()
+    logger.debug("on_startup: set bot for gem scanner notifications")
+    gem_scanner.set_bot(bot)
     logger.debug("on_startup: start gem scanner")
     await gem_scanner.start()
     logger.debug("on_startup: setup middlewares")

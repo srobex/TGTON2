@@ -78,5 +78,5 @@ async def _wallet_status(user: User, locale: str) -> tuple[str, InlineKeyboardMa
     return text, build_wallet_keyboard(connected=True)
 
 
-__all__ = ["router"]
+__all__ = ["router", "command_wallet", "command_connect"]
 

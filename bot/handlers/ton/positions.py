@@ -45,5 +45,5 @@ async def command_positions(message: Message, session: AsyncSession) -> None:
     await message.answer("\n".join(lines))
 
 
-__all__ = ["router"]
+__all__ = ["router", "command_positions"]
 

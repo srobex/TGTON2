@@ -33,5 +33,5 @@ async def command_referral(message: Message, session: AsyncSession) -> None:
     await message.answer(text)
 
 
-__all__ = ["router"]
+__all__ = ["router", "command_referral"]
 

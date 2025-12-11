@@ -105,7 +105,7 @@ async def handle_language_switch(callback: CallbackQuery) -> None:
 # =============================================================================
 
 @router.message(F.text)
-async def handle_text_buttons(message: Message) -> None:
+async def handle_text_buttons(message: Message, session: AsyncSession | None = None) -> None:
     """Обрабатывает нажатия на кнопки клавиатуры (текстовые)."""
     
     text = message.text.strip()
@@ -124,17 +124,17 @@ async def handle_text_buttons(message: Message) -> None:
     elif command == "/hot":
         await handle_hot_tokens(message)
     elif command == "/wallet":
-        from bot.handlers.core.wallet import handle_wallet
-        await handle_wallet(message)
+        from bot.handlers.core.wallet import command_wallet
+        await command_wallet(message, session)
     elif command == "/connect":
-        from bot.handlers.core.wallet import handle_connect
-        await handle_connect(message)
+        from bot.handlers.core.wallet import command_connect
+        await command_connect(message)
     elif command == "/positions":
-        from bot.handlers.ton.positions import handle_positions
-        await handle_positions(message)
+        from bot.handlers.ton.positions import command_positions
+        await command_positions(message, session)
     elif command == "/referral":
-        from bot.handlers.core.referral import handle_referral
-        await handle_referral(message)
+        from bot.handlers.core.referral import command_referral
+        await command_referral(message, session)
     elif command == "/menu":
         await handle_menu(message)
     elif command == "/help":
